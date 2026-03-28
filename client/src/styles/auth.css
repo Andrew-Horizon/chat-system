@@ -1,0 +1,132 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #f6f8fa;
+  color: #24292f;
+}
+
+a {
+  color: #0969da;
+  text-decoration: none;
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  border: 1px solid #d8dee4;
+  border-radius: 12px;
+  padding: 32px 28px;
+  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
+}
+
+.auth-logo {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: #24292f;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+}
+
+.auth-title {
+  margin: 0;
+  text-align: center;
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.auth-subtitle {
+  margin: 12px 0 24px;
+  text-align: center;
+  color: #57606a;
+  font-size: 14px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auth-form-item label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.auth-form-item input {
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.auth-form-item input:focus {
+  border-color: #0969da;
+  box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.15);
+}
+
+.auth-btn {
+  margin-top: 8px;
+  height: 46px;
+  border: none;
+  border-radius: 8px;
+  background: #1f883d;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.auth-btn:hover {
+  background: #1a7f37;
+}
+
+.auth-btn:disabled {
+  background: #94d3a2;
+  cursor: not-allowed;
+}
+
+.auth-error {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ffebe9;
+  color: #cf222e;
+  font-size: 14px;
+}
+
+.auth-footer {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 14px;
+  color: #57606a;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
