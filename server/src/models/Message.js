@@ -75,6 +75,19 @@ const messageSchema = new mongoose.Schema(
       type: String,
       default: ''
     },
+    encrypted: {
+      type: Boolean,
+      default: false
+    },
+    encryptedKeys: {
+      type: Map,
+      of: String,
+      default: undefined
+    },
+    iv: {
+      type: String,
+      default: ''
+    },
     sentAt: {
       type: Date,
       default: Date.now

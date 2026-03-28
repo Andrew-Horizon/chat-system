@@ -100,3 +100,14 @@ export const downloadFileApi = (filename, originalName) =>
     params: { originalName },
     responseType: 'blob'
   });
+
+// ==================== E2EE 公钥管理 ====================
+
+export const uploadPublicKeyApi = (publicKey) =>
+  request.post('/api/keys/upload', { publicKey });
+
+export const getPublicKeyApi = (userId) =>
+  request.get(`/api/keys/${userId}`);
+
+export const batchGetPublicKeysApi = (userIds) =>
+  request.post('/api/keys/batch', { userIds });

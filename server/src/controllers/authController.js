@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const redisClient = require('../utils/redis');
 
 const register = async (ctx) => {
   try {
@@ -160,8 +161,47 @@ const getMe = async (ctx) => {
   }
 };
 
+const logout = async (ctx) => {
+  try {
+    const authHeader = ctx.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      try {
+        const decoded = jwt.decode(token);
+        if (decoded && decoded.exp) {
+          const expiresAt = decoded.exp * 1000;
+          const ttl = Math.floor((expiresAt - Date.now()) / 1000);
+          if (ttl > 0) {
+            await redisClient.setex(`blacklist:${token}`, ttl, '1');
+          }
+        }
+      } catch (err) {
+        console.error('Token Decode Error in Logout:', err);
+      }
+    }
+    
+    if (ctx.state.user) {
+      await User.findByIdAndUpdate(ctx.state.user._id, { status: 'offline' });
+    }
+
+    ctx.status = 200;
+    ctx.body = {
+      success: true,
+      message: '退出登录成功'
+    };
+  } catch (error) {
+    console.error('退出登录失败:', error.message);
+    ctx.status = 500;
+    ctx.body = {
+      success: false,
+      message: '服务器内部错误'
+    };
+  }
+};
+
 module.exports = {
   register,
   login,
-  getMe
+  getMe,
+  logout
 };

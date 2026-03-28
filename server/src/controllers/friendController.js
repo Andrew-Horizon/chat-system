@@ -1,6 +1,7 @@
 const Friendship = require('../models/Friendship');
 const User = require('../models/User');
 const { getIO } = require('../utils/socketStore');
+const redisClient = require('../utils/redis');
 
 const sendFriendRequest = async (ctx) => {
   try {
@@ -143,6 +144,15 @@ const getFriendList = async (ctx) => {
       };
     });
 
+    const onlineKeys = friendList.map(f => `online:${f.id.toString()}`);
+    let onlineStatuses = [];
+    if (onlineKeys.length > 0) {
+      onlineStatuses = await redisClient.mget(onlineKeys);
+    }
+    friendList.forEach((f, i) => {
+      f.status = onlineStatuses[i] ? 'online' : 'offline';
+    });
+
     ctx.status = 200;
     ctx.body = {
       success: true,
@@ -211,6 +221,15 @@ const searchUsers = async (ctx) => {
       relationStatus: relationMap.get(user._id.toString()) || 'none'
     }));
 
+    const onlineKeys = result.map(u => `online:${u.id.toString()}`);
+    let onlineStatuses = [];
+    if (onlineKeys.length > 0) {
+      onlineStatuses = await redisClient.mget(onlineKeys);
+    }
+    result.forEach((u, i) => {
+      u.status = onlineStatuses[i] ? 'online' : 'offline';
+    });
+
     ctx.status = 200;
     ctx.body = {
       success: true,
@@ -247,6 +266,15 @@ const getPendingRequests = async (ctx) => {
       },
       createdAt: item.createdAt
     }));
+
+    const onlineKeys = result.map(req => `online:${req.requester.id.toString()}`);
+    let onlineStatuses = [];
+    if (onlineKeys.length > 0) {
+      onlineStatuses = await redisClient.mget(onlineKeys);
+    }
+    result.forEach((req, i) => {
+      req.requester.status = onlineStatuses[i] ? 'online' : 'offline';
+    });
 
     ctx.status = 200;
     ctx.body = {

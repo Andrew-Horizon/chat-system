@@ -3,6 +3,29 @@ const Conversation = require('../models/Conversation');
 const GroupMember = require('../models/GroupMember');
 const { createCallMessageAndBroadcast } = require('../utils/callMessageLogger');
 
+
+const { isRateLimited } = require('../utils/rateLimiter');
+const { joinCall, leaveCall, getCallCount } = require('../utils/callStatus');
+
+const notifyCallStatus = async (io, conversationId) => {
+  if (!conversationId) return;
+  try {
+    const count = await getCallCount(conversationId);
+    let pIds = [];
+    try {
+       const { getGroupParticipantIdsFromDB } = require('./voiceCallHandlers'); 
+       pIds = await getGroupParticipantIdsFromDB({ conversationId }); 
+    } catch(err) {}
+    const payload = { conversationId, activeCallCount: count };
+    pIds.forEach(id => {
+      io.to('user:' + id).emit('conversation:call_status_changed', payload);
+    });
+    io.to(conversationId).emit('conversation:call_status_changed', payload);
+  } catch(e) {
+    console.error('notify state error', e);
+  }
+};
+
 const buildUserInfo = (user, extra = {}) => ({
   id: user._id?.toString?.() || user.id || '',
   username: user.username || '',
@@ -73,6 +96,10 @@ const registerVoiceCallHandlers = (io, socket) => {
   socket.on('voice:private:start', async (payload) => {
     try {
       const { conversationId, targetUserId } = payload || {};
+      if (await isRateLimited(`call_limit:${currentUser._id.toString()}`, 2)) {
+        socket.emit('voice:private:error', { message: '请求频次过高，请稍后再试' });
+        return;
+      }
 
       if (!conversationId || !targetUserId) {
         socket.emit('voice:private:error', {
@@ -116,6 +143,9 @@ const registerVoiceCallHandlers = (io, socket) => {
       };
 
       privateCalls.set(callId, callData);
+      await joinCall(callData.conversationId, callData.callerId);
+      await joinCall(callData.conversationId, callData.calleeId);
+      await notifyCallStatus(io, callData.conversationId);
 
       await createCallMessageAndBroadcast(io, {
         conversationId,
@@ -317,6 +347,12 @@ const registerVoiceCallHandlers = (io, socket) => {
           targetUserId: otherUserId
         }
       });
+
+      if (callData.acceptedAt) {
+        await leaveCall(callData.conversationId, callData.callerId);
+        await leaveCall(callData.conversationId, callData.calleeId);
+        await notifyCallStatus(io, callData.conversationId);
+      }
     } catch (error) {
       console.error('挂断单聊语音失败:', error.message);
       socket.emit('voice:private:error', {
@@ -503,6 +539,8 @@ const registerVoiceCallHandlers = (io, socket) => {
       };
 
       groupCalls.set(groupId.toString(), groupCall);
+      await joinCall(conversationId, currentUser._id.toString());
+      await notifyCallStatus(io, conversationId);
 
       await createCallMessageAndBroadcast(io, {
         conversationId,
@@ -594,6 +632,8 @@ const registerVoiceCallHandlers = (io, socket) => {
 
       groupCall.status = 'active';
       groupCalls.set(groupId.toString(), groupCall);
+      await joinCall(groupCall.conversationId, currentUser._id.toString());
+      await notifyCallStatus(io, groupCall.conversationId);
 
       await createCallMessageAndBroadcast(io, {
         conversationId: groupCall.conversationId,
@@ -641,6 +681,8 @@ const registerVoiceCallHandlers = (io, socket) => {
       const currentUserId = currentUser._id.toString();
 
       groupCall.participants.delete(currentUserId);
+      await leaveCall(groupCall.conversationId, currentUserId);
+      await notifyCallStatus(io, groupCall.conversationId);
       groupCall.invitedUserIds = groupCall.invitedUserIds.filter(
         (id) => id.toString() !== currentUserId
       );
@@ -681,6 +723,8 @@ await createCallMessageAndBroadcast(io, {
   }
 });
 
+        for (const uid of Array.from(targetUserIds)) { await leaveCall(groupCall.conversationId, uid); }
+        await notifyCallStatus(io, groupCall.conversationId);
         groupCalls.delete(groupId.toString());
         return;
       }

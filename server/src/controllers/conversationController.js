@@ -2,6 +2,7 @@ const Conversation = require('../models/Conversation');
 const Friendship = require('../models/Friendship');
 const User = require('../models/User');
 const Group = require('../models/Group');
+const redisClient = require('../utils/redis');
 
 const createOrGetPrivateConversation = async (ctx) => {
   try {
@@ -101,8 +102,26 @@ const getConversationList = async (ctx) => {
       .lean();
 
     const result = [];
+    const unreadKeys = conversations.map(
+      (c) => `unread:${c._id.toString()}:${currentUser._id.toString()}`
+    );
+    let unreadCounts = [];
+    if (unreadKeys.length > 0) {
+      unreadCounts = await redisClient.mget(unreadKeys);
+    }
 
+    const pipeline = redisClient.pipeline();
+    conversations.forEach((c) => pipeline.scard(`call_room:${c._id.toString()}`));
+    let callCountsRaw = [];
+    if (conversations.length > 0) {
+      callCountsRaw = await pipeline.exec();
+    }
+
+    let index = 0;
     for (const conversation of conversations) {
+      const currentUnread = parseInt(unreadCounts[index] || '0', 10);
+      const currentCallCount = callCountsRaw.length > 0 ? (callCountsRaw[index][1] || 0) : 0;
+      index++;
       if (conversation.type === 'private') {
         const targetUserId = conversation.participantIds.find(
           (id) => id.toString() !== currentUser._id.toString()
@@ -115,12 +134,15 @@ const getConversationList = async (ctx) => {
         result.push({
           id: conversation._id,
           type: conversation.type,
+          participantIds: conversation.participantIds.map(id => id.toString()),
           targetUser: targetUser || null,
           groupInfo: null,
           lastMessage: conversation.lastMessage || '',
           lastMessageAt: conversation.lastMessageAt,
           createdAt: conversation.createdAt,
-          updatedAt: conversation.updatedAt
+          updatedAt: conversation.updatedAt,
+          unreadCount: currentUnread,
+          activeCallCount: currentCallCount
         });
       } else if (conversation.type === 'group') {
         const groupInfo = conversation.groupId
@@ -132,14 +154,33 @@ const getConversationList = async (ctx) => {
         result.push({
           id: conversation._id,
           type: conversation.type,
+          participantIds: conversation.participantIds.map(id => id.toString()),
           targetUser: null,
           groupInfo,
           lastMessage: conversation.lastMessage || '',
           lastMessageAt: conversation.lastMessageAt,
           createdAt: conversation.createdAt,
-          updatedAt: conversation.updatedAt
+          updatedAt: conversation.updatedAt,
+          unreadCount: currentUnread,
+          activeCallCount: currentCallCount
         });
       }
+    }
+
+    const onlineKeys = [];
+    const privateIndexMap = [];
+    result.forEach((c, idx) => {
+      if (c.type === 'private' && c.targetUser) {
+        onlineKeys.push(`online:${c.targetUser._id.toString()}`);
+        privateIndexMap.push(idx);
+      }
+    });
+
+    if (onlineKeys.length > 0) {
+      const onlineStatuses = await redisClient.mget(onlineKeys);
+      privateIndexMap.forEach((resIdx, i) => {
+        result[resIdx].targetUser.status = onlineStatuses[i] ? 'online' : 'offline';
+      });
     }
 
     ctx.status = 200;

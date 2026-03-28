@@ -17,6 +17,7 @@ const { setIO } = require('./utils/socketStore');
 const path = require('path');
 const serve = require('koa-static');
 const uploadRoutes = require('./routes/uploadRoutes');
+const keyRoutes = require('./routes/keyRoutes');
 
 dotenv.config();
 
@@ -45,6 +46,9 @@ app.use(groupRoutes.allowedMethods());
 
 app.use(uploadRoutes.routes());
 app.use(uploadRoutes.allowedMethods());
+
+app.use(keyRoutes.routes());
+app.use(keyRoutes.allowedMethods());
 
 app.use(async (ctx) => {
   if (ctx.path === '/' && ctx.method === 'GET') {

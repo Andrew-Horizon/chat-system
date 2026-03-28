@@ -4,6 +4,9 @@ const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const { registerVoiceCallHandlers } = require('./voiceCallHandlers');
 const { registerVideoCallHandlers } = require('./videoCallHandlers');
+const redisClient = require('../utils/redis');
+const { isRateLimited } = require('../utils/rateLimiter');
+const { pushMessage, invalidateMessage } = require('../utils/messageCache');
 
 const onlineUsers = new Map();
 
@@ -43,13 +46,15 @@ const setupSocket = (io) => {
 
     onlineUsers.set(currentUser._id.toString(), socket.id);
 
-    await User.findByIdAndUpdate(currentUser._id, {
-      status: 'online'
-    });
+    await redisClient.setex(`online:${currentUser._id.toString()}`, 60, socket.id);
 
     io.emit('user:online', {
       userId: currentUser._id,
       status: 'online'
+    });
+
+    socket.on('heartbeat', async () => {
+      await redisClient.expire(`online:${currentUser._id.toString()}`, 60);
     });
 
     socket.on('chat:join', async (conversationId) => {
@@ -96,7 +101,10 @@ const setupSocket = (io) => {
           messageType = 'text',
           fileUrl = '',
           clientMsgId = '',
-          replyTo = null
+          replyTo = null,
+          encrypted = false,
+          encryptedKeys = undefined,
+          iv = ''
         } = payload;
 
         if (!conversationId) {
@@ -141,13 +149,27 @@ const setupSocket = (io) => {
           content,
           fileUrl,
           clientMsgId,
-          replyTo
+          replyTo,
+          encrypted,
+          encryptedKeys: encrypted ? encryptedKeys : undefined,
+          iv: encrypted ? iv : ''
         });
 
         await Conversation.findByIdAndUpdate(conversationId, {
-          lastMessage: messageType === 'text' ? content : `[${messageType}]`,
+          lastMessage: encrypted ? '[加密消息]' : (messageType === 'text' ? content : `[${messageType}]`),
           lastMessageAt: message.sentAt
         });
+
+        const receivers = conversation.participantIds.filter(
+          id => id.toString() !== currentUser._id.toString()
+        );
+        if (receivers.length > 0) {
+          const pipeline = redisClient.pipeline();
+          receivers.forEach(rId => {
+            pipeline.incr(`unread:${conversationId}:${rId.toString()}`);
+          });
+          await pipeline.exec();
+        }
 
         const fullMessage = await Message.findById(message._id)
           .populate('senderId', 'username nickname avatar status')
@@ -160,6 +182,16 @@ const setupSocket = (io) => {
         io.to(conversationId).emit('message:new', {
           success: true,
           data: fullMessage
+        });
+
+        // 写入 Redis ZSet 缓存
+        await pushMessage(conversationId, fullMessage.toObject ? fullMessage.toObject() : fullMessage);
+
+        receivers.forEach(rId => {
+          io.to(`user:${rId.toString()}`).emit('message:new', {
+            success: true,
+            data: fullMessage
+          });
         });
 
         socket.emit('message:ack', {
@@ -214,6 +246,9 @@ const setupSocket = (io) => {
           conversationId,
           recalledBy: currentUser._id
         });
+
+        // 同步撤回到 Redis 缓存
+        await invalidateMessage(conversationId, messageId);
       } catch (error) {
         console.error('撤回消息失败:', error.message);
       }
@@ -228,6 +263,8 @@ const setupSocket = (io) => {
           { _id: { $in: messageIds }, conversationId },
           { $addToSet: { readBy: currentUser._id } }
         );
+
+        await redisClient.del(`unread:${conversationId}:${currentUser._id.toString()}`);
 
         io.to(conversationId).emit('message:readReceipt', {
           success: true,
@@ -244,10 +281,8 @@ const setupSocket = (io) => {
       console.log(`用户断开连接: ${currentUser.username} (${socket.id})`);
 
       onlineUsers.delete(currentUser._id.toString());
-
-      await User.findByIdAndUpdate(currentUser._id, {
-        status: 'offline'
-      });
+      
+      await redisClient.del(`online:${currentUser._id.toString()}`);
 
       io.emit('user:offline', {
         userId: currentUser._id,

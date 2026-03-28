@@ -13,6 +13,7 @@ import JoinGroupModal from '../components/JoinGroupModal';
 import InviteGroupMemberModal from '../components/InviteGroupMemberModal';
 import VoiceCallController from '../components/VoiceCallController';
 import VideoCallController from '../components/VideoCallController';
+import { logoutApi } from '../api/auth';
 import {
   getMeApi,
   getConversationListApi,
@@ -38,9 +39,21 @@ import {
   inviteGroupMembersApi,
   leaveGroupApi,
   uploadFileApi,
-  downloadFileApi
+  downloadFileApi,
+  uploadPublicKeyApi,
+  batchGetPublicKeysApi
 } from '../api/chat';
 import { connectSocket, disconnectSocket, getSocket } from '../utils/socket';
+import {
+  generateKeyPair,
+  saveKeysToStorage,
+  hasLocalKeys,
+  getPrivateKeyFromStorage,
+  getPublicKeyJwkFromStorage,
+  encryptMessage,
+  decryptMessage,
+  importPublicKey
+} from '../utils/crypto';
 import '../styles/chat.css';
 
 export default function ChatHomePage() {
@@ -53,6 +66,9 @@ export default function ChatHomePage() {
   const [groups, setGroups] = useState([]);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [messageList, setMessageList] = useState([]);
+  const [messagePage, setMessagePage] = useState(1);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const [addFriendModalVisible, setAddFriendModalVisible] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
@@ -254,17 +270,83 @@ export default function ChatHomePage() {
     }
   };
 
+  const decryptMessages = async (messages) => {
+    const privateKey = await getPrivateKeyFromStorage();
+    if (!privateKey) return messages;
+    const myId = userInfo?._id || userInfo?.id || '';
+    const result = [];
+    for (const msg of messages) {
+      if (msg.encrypted && msg.encryptedKeys && msg.iv) {
+        try {
+          const encKeys = msg.encryptedKeys instanceof Map
+            ? Object.fromEntries(msg.encryptedKeys)
+            : (typeof msg.encryptedKeys === 'object' ? msg.encryptedKeys : {});
+          const myEncKey = encKeys[myId];
+          if (myEncKey) {
+            const plaintext = await decryptMessage(msg.content, msg.iv, myEncKey, privateKey);
+            result.push({ ...msg, content: plaintext, _decrypted: true });
+            continue;
+          }
+        } catch (e) {
+          result.push({ ...msg, content: '[加密消息，无法解密]' });
+          continue;
+        }
+      }
+      result.push(msg);
+    }
+    return result;
+  };
+
   const loadMessages = async (conversationId) => {
     try {
       const res = await getMessageListApi(conversationId, 1, 20);
-      setMessageList(res.data.data.list || []);
+      const data = res.data.data;
+      const decrypted = await decryptMessages(data.list || []);
+      setMessageList(decrypted);
+      setMessagePage(1);
+      const total = data.pagination?.total || 0;
+      setHasMoreMessages((data.list?.length || 0) < total);
     } catch (error) {
       setMessageList([]);
+      setHasMoreMessages(false);
+    }
+  };
+
+  const loadMoreMessages = async () => {
+    if (!currentConversation || loadingMore || !hasMoreMessages) return;
+    const convId = currentConversation.id || currentConversation._id;
+    const nextPage = messagePage + 1;
+    setLoadingMore(true);
+    try {
+      const res = await getMessageListApi(convId, nextPage, 20);
+      const data = res.data.data;
+      const olderRaw = data.list || [];
+      const older = await decryptMessages(olderRaw);
+      if (older.length === 0) {
+        setHasMoreMessages(false);
+      } else {
+        setMessageList((prev) => [...older, ...prev]);
+        setMessagePage(nextPage);
+        const total = data.pagination?.total || 0;
+        const loaded = messageList.length + older.length;
+        setHasMoreMessages(loaded < total);
+      }
+    } catch (error) {
+      console.error('加载更多消息失败:', error);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
   const handleSelectConversation = async (item) => {
     setCurrentConversation(item);
+    setConversations((prev) =>
+      prev.map((c) =>
+        String(c.id) === String(item.id || item._id)
+          ? { ...c, unreadCount: 0 }
+          : c
+      )
+    );
     await loadMessages(item.id || item._id);
   };
 
@@ -464,13 +546,39 @@ const handleLeaveGroup = async () => {
 
     try {
       if (socket && socket.connected) {
-        socket.emit('message:send', {
+        // E2EE 加密
+        let sendPayload = {
           conversationId: currentConversationId,
           content,
           messageType: 'text',
           clientMsgId: optimisticMessage.clientMsgId,
           replyTo: replyTo ? replyTo._id || replyTo.id : null
-        });
+        };
+
+        try {
+          const conv = conversations.find(c => String(c.id) === String(currentConversationId));
+          const participantIds = conv?.participantIds || [];
+          if (participantIds.length > 0) {
+            const keysRes = await batchGetPublicKeysApi(participantIds);
+            const pubKeys = keysRes.data?.data || {};
+            const recipients = [];
+            for (const [uid, keyStr] of Object.entries(pubKeys)) {
+              const pubKey = await importPublicKey(keyStr);
+              recipients.push({ userId: uid, publicKey: pubKey });
+            }
+            if (recipients.length > 0) {
+              const { ciphertext, iv, encryptedKeys } = await encryptMessage(content, recipients);
+              sendPayload.content = ciphertext;
+              sendPayload.encrypted = true;
+              sendPayload.encryptedKeys = encryptedKeys;
+              sendPayload.iv = iv;
+            }
+          }
+        } catch (encErr) {
+          console.warn('E2EE 加密失败，回退明文发送:', encErr);
+        }
+
+        socket.emit('message:send', sendPayload);
       } else {
         await sendMessageApi({
           conversationId: currentConversationId,
@@ -656,7 +764,12 @@ const handleDownloadFile = async (filename, originalName) => {
   }
 };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await logoutApi();
+    } catch (e) {
+      console.warn('Backend logout failed or token already cleared', e);
+    }
     disconnectSocket();
     localStorage.removeItem('token');
     localStorage.removeItem('userInfo');
@@ -818,19 +931,64 @@ const closeInviteGroupMemberModal = () => {
 
   loadBaseData();
 
+  // E2EE: 初始化密钥对
+  (async () => {
+    try {
+      if (!hasLocalKeys()) {
+        const keyPair = await generateKeyPair();
+        const { publicKeyJwk } = await saveKeysToStorage(keyPair);
+        await uploadPublicKeyApi(publicKeyJwk);
+        console.log('E2EE: 新密钥对已生成并上传');
+      } else {
+        const pubJwk = getPublicKeyJwkFromStorage();
+        await uploadPublicKeyApi(pubJwk);
+        console.log('E2EE: 本地密钥对已恢复');
+      }
+    } catch (e) {
+      console.error('E2EE 初始化失败:', e);
+    }
+  })();
+
   const socket = connectSocket(token);
   if (!socket) return;
 
+  const heartbeatInterval = setInterval(() => {
+    if (socket && socket.connected) {
+      socket.emit('heartbeat');
+    }
+  }, 30000);
+
   const handleMessageNew = async (payload) => {
-    const newMessage = payload?.data;
+    let newMessage = payload?.data;
     if (!newMessage) return;
+
+    // E2EE 解密
+    if (newMessage.encrypted && newMessage.encryptedKeys && newMessage.iv) {
+      try {
+        const privateKey = await getPrivateKeyFromStorage();
+        const myId = currentUserId;
+        const encKeys = newMessage.encryptedKeys instanceof Map
+          ? Object.fromEntries(newMessage.encryptedKeys)
+          : newMessage.encryptedKeys;
+        const myEncKey = encKeys[myId];
+        if (privateKey && myEncKey) {
+          const plaintext = await decryptMessage(newMessage.content, newMessage.iv, myEncKey, privateKey);
+          newMessage = { ...newMessage, content: plaintext, _decrypted: true };
+        }
+      } catch (decErr) {
+        console.warn('E2EE 解密失败:', decErr);
+        newMessage = { ...newMessage, content: '[加密消息，无法解密]' };
+      }
+    }
 
     const newConversationId =
       newMessage.conversationId?._id ||
       newMessage.conversationId ||
       '';
 
-    if (String(newConversationId) === String(currentConversationId)) {
+    const currentRefId = joinedConversationRef.current;
+
+    if (String(newConversationId) === String(currentRefId)) {
       setMessageList((prev) => {
         const exists = prev.some(
           (item) =>
@@ -850,7 +1008,29 @@ const closeInviteGroupMemberModal = () => {
       });
     }
 
-    await loadBaseData();
+    setConversations((prev) => {
+      let found = false;
+      const updated = prev.map((c) => {
+        if (String(c.id) === String(newConversationId)) {
+          found = true;
+          return {
+            ...c,
+            lastMessage: newMessage.messageType === 'text' ? newMessage.content : `[${newMessage.messageType}]`,
+            lastMessageAt: newMessage.createdAt || newMessage.sentAt || Date.now(),
+            unreadCount:
+              String(newConversationId) === String(currentRefId) || String(newMessage.senderId?._id) === String(currentUserId)
+                ? 0
+                : (c.unreadCount || 0) + 1
+          };
+        }
+        return c;
+      });
+      if (!found) {
+        setTimeout(loadBaseData, 500); 
+        return prev;
+      }
+      return updated.sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
+    });
   };
 
   const handleMessageAck = (payload) => {
@@ -897,7 +1077,7 @@ const closeInviteGroupMemberModal = () => {
 
   const handleMessageRecalled = async (payload) => {
     const { messageId, conversationId } = payload;
-    if (String(conversationId) === String(currentConversationId)) {
+    if (String(conversationId) === String(joinedConversationRef.current)) {
       setMessageList((prev) =>
         prev.map((msg) =>
           String(msg._id) === String(messageId)
@@ -911,7 +1091,7 @@ const closeInviteGroupMemberModal = () => {
 
   const handleMessageReadReceipt = (payload) => {
     const { messageIds, conversationId, userId } = payload;
-    if (String(conversationId) !== String(currentConversationId)) return;
+    if (String(conversationId) !== String(joinedConversationRef.current)) return;
     setMessageList((prev) =>
       prev.map((msg) => {
         if (messageIds.includes(String(msg._id))) {
@@ -929,6 +1109,17 @@ const closeInviteGroupMemberModal = () => {
     );
   };
 
+  const handleCallStatusChanged = (payload) => {
+    const { conversationId, activeCallCount } = payload;
+    setConversations((prev) =>
+      prev.map((c) =>
+        String(c.id) === String(conversationId)
+          ? { ...c, activeCallCount }
+          : c
+      )
+    );
+  };
+
   socket.on('message:new', handleMessageNew);
   socket.on('message:ack', handleMessageAck);
   socket.on('message:error', handleMessageError);
@@ -939,8 +1130,10 @@ const closeInviteGroupMemberModal = () => {
   socket.on('friend:requested', handleFriendRequested);
   socket.on('message:recalled', handleMessageRecalled);
   socket.on('message:readReceipt', handleMessageReadReceipt);
+  socket.on('conversation:call_status_changed', handleCallStatusChanged);
 
   return () => {
+    clearInterval(heartbeatInterval);
     socket.off('message:new', handleMessageNew);
     socket.off('message:ack', handleMessageAck);
     socket.off('message:error', handleMessageError);
@@ -951,12 +1144,11 @@ const closeInviteGroupMemberModal = () => {
     socket.off('friend:requested', handleFriendRequested);
     socket.off('message:recalled', handleMessageRecalled);
     socket.off('message:readReceipt', handleMessageReadReceipt);
+    socket.off('conversation:call_status_changed', handleCallStatusChanged);
   };
 }, [
-  currentConversationId,
   currentUserId,
-  navigate,
-  friendRequestModalVisible
+  navigate
 ]);
 
   useEffect(() => {
@@ -1016,6 +1208,9 @@ const closeInviteGroupMemberModal = () => {
         onStartVideoCall={handleStartVideoCall}
         onRecallMessage={handleRecallMessage}
         onMarkMessagesAsRead={handleMarkMessagesAsRead}
+        onLoadMore={loadMoreMessages}
+        hasMore={hasMoreMessages}
+        loadingMore={loadingMore}
       />
 
       <AddFriendModal

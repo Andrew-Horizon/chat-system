@@ -3,6 +3,29 @@ const Conversation = require('../models/Conversation');
 const GroupMember = require('../models/GroupMember');
 const { createCallMessageAndBroadcast } = require('../utils/callMessageLogger');
 
+
+const { isRateLimited } = require('../utils/rateLimiter');
+const { joinCall, leaveCall, getCallCount } = require('../utils/callStatus');
+
+const notifyCallStatus = async (io, conversationId) => {
+  if (!conversationId) return;
+  try {
+    const count = await getCallCount(conversationId);
+    let pIds = [];
+    try {
+       const { getGroupParticipantIdsFromDB } = require('./voiceCallHandlers'); 
+       pIds = await getGroupParticipantIdsFromDB({ conversationId }); 
+    } catch(err) {}
+    const payload = { conversationId, activeCallCount: count };
+    pIds.forEach(id => {
+      io.to('user:' + id).emit('conversation:call_status_changed', payload);
+    });
+    io.to(conversationId).emit('conversation:call_status_changed', payload);
+  } catch(e) {
+    console.error('notify state error', e);
+  }
+};
+
 const buildUserInfo = (user, extra = {}) => ({
   id: user._id?.toString?.() || user.id || '',
   username: user.username || '',
@@ -74,6 +97,10 @@ const registerVideoCallHandlers = (io, socket) => {
   socket.on('video:private:start', async (payload) => {
     try {
       const { conversationId, targetUserId } = payload || {};
+      if (await isRateLimited(`call_limit:${currentUser._id.toString()}`, 2)) {
+        socket.emit('video:private:error', { message: '请求频次过高，请稍后再试' });
+        return;
+      }
 
       if (!conversationId || !targetUserId) {
         socket.emit('video:private:error', {
@@ -117,6 +144,9 @@ const registerVideoCallHandlers = (io, socket) => {
       };
 
       privateVideoCalls.set(callId, callData);
+      await joinCall(callData.conversationId, callData.callerId);
+      await joinCall(callData.conversationId, callData.calleeId);
+      await notifyCallStatus(io, callData.conversationId);
 
       await createCallMessageAndBroadcast(io, {
         conversationId,
@@ -318,6 +348,17 @@ const registerVideoCallHandlers = (io, socket) => {
         }
       });
 
+      if (callData.acceptedAt) {
+        await leaveCall(callData.conversationId, callData.callerId);
+        await leaveCall(callData.conversationId, callData.calleeId);
+        await notifyCallStatus(io, callData.conversationId);
+      }
+
+      if (callData && callData.acceptedAt) {
+        await leaveCall(callData.conversationId, callData.callerId);
+        await leaveCall(callData.conversationId, callData.calleeId);
+        await notifyCallStatus(io, callData.conversationId);
+      }
       privateVideoCalls.delete(callId);
     } catch (error) {
       console.error('挂断单聊视频失败:', error.message);
@@ -506,6 +547,8 @@ const registerVideoCallHandlers = (io, socket) => {
       };
 
       groupVideoCalls.set(groupId.toString(), groupCall);
+      await joinCall(conversationId, currentUser._id.toString());
+      await notifyCallStatus(io, conversationId);
 
       await createCallMessageAndBroadcast(io, {
         conversationId,
@@ -597,6 +640,8 @@ const registerVideoCallHandlers = (io, socket) => {
 
       groupCall.status = 'active';
       groupVideoCalls.set(groupId.toString(), groupCall);
+      await joinCall(groupCall.conversationId, currentUser._id.toString());
+      await notifyCallStatus(io, groupCall.conversationId);
 
       await createCallMessageAndBroadcast(io, {
         conversationId: groupCall.conversationId,
@@ -644,6 +689,8 @@ const registerVideoCallHandlers = (io, socket) => {
       const currentUserId = currentUser._id.toString();
 
       groupCall.participants.delete(currentUserId);
+      await leaveCall(groupCall.conversationId, currentUserId);
+      await notifyCallStatus(io, groupCall.conversationId);
       groupCall.invitedUserIds = groupCall.invitedUserIds.filter(
         (id) => id.toString() !== currentUserId
       );
@@ -684,6 +731,8 @@ const registerVideoCallHandlers = (io, socket) => {
           });
         });
 
+        for (const uid of Array.from(targetUserIds)) { await leaveCall(groupCall.conversationId, uid); }
+        await notifyCallStatus(io, groupCall.conversationId);
         groupVideoCalls.delete(groupId.toString());
         return;
       }

@@ -25,3 +25,6 @@ server/dist/
 *.njsproj
 *.sln
 *.sw?
+inject_redis.js
+inject_redis_safe.js
+inject_exact.js

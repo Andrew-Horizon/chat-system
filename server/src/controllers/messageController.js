@@ -1,5 +1,6 @@
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
+const { getRecentMessages } = require('../utils/messageCache');
 
 const sendMessage = async (ctx) => {
   try {
@@ -144,6 +145,29 @@ const getMessageList = async (ctx) => {
     const currentPageSize = parseInt(pageSize, 10);
     const skip = (currentPage - 1) * currentPageSize;
 
+    // “热路由”：首屏加载（第 1 页）优先命中 Redis ZSet 缓存
+    if (currentPage === 1) {
+      const cached = await getRecentMessages(conversationId, currentPageSize);
+      if (cached && cached.length >= currentPageSize) {
+        const total = await Message.countDocuments({ conversationId });
+        ctx.status = 200;
+        ctx.body = {
+          success: true,
+          message: '获取历史消息成功(缓存)',
+          data: {
+            list: cached,
+            pagination: {
+              page: 1,
+              pageSize: currentPageSize,
+              total
+            }
+          }
+        };
+        return;
+      }
+    }
+
+    // “冷路由”：翻页或缓存未命中，回源 MongoDB
     const total = await Message.countDocuments({ conversationId });
 
     const messages = await Message.find({ conversationId })

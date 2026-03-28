@@ -79,14 +79,24 @@ export default function ChatListPanel({
               className={currentConversationId === item.id ? 'list-item active' : 'list-item'}
               onClick={() => onSelectConversation(item)}
             >
-              <div className="list-item-title">
-                {item.type === 'private'
-                  ? item.targetUser?.nickname || item.targetUser?.username || '单聊'
-                  : item.groupInfo?.name || '群聊'}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="list-item-title" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {item.type === 'private'
+                      ? item.targetUser?.nickname || item.targetUser?.username || '单聊'
+                      : item.groupInfo?.name || '群聊'}
+                  </span>
+                  {item.activeCallCount > 0 && <span title="通话中" style={{ color: '#52c41a', fontSize: '13px', flexShrink: 0 }}>📞</span>}
+                </div>
+                <div className="list-item-desc">
+                  {item.lastMessage || '暂无消息'}
+                </div>
               </div>
-              <div className="list-item-desc">
-                {item.lastMessage || '暂无消息'}
-              </div>
+              {item.unreadCount > 0 && (
+                <div className="list-unread-badge">
+                  {item.unreadCount > 99 ? '99+' : item.unreadCount}
+                </div>
+              )}
             </div>
           ))}
 

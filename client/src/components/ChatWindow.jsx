@@ -27,7 +27,10 @@ export default function ChatWindow({
   onLeaveGroup,
   currentUserInfo,
   onRecallMessage,
-  onMarkMessagesAsRead
+  onMarkMessagesAsRead,
+  onLoadMore,
+  hasMore,
+  loadingMore
 }) {
   const [inputValue, setInputValue] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -49,6 +52,8 @@ export default function ChatWindow({
   const audioPlayerRef = useRef(null);
   const isRecordingRef = useRef(false);
   const micButtonRef = useRef(null);
+  const chatBodyRef = useRef(null);
+  const prevScrollHeightRef = useRef(0);
 
   const handleSend = async () => {
     if (!inputValue.trim() || !currentConversationId) return;
@@ -139,6 +144,15 @@ export default function ChatWindow({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showEmojiPicker]);
+
+  // 加载更多旧消息后，保持滚动位置不跳动
+  useEffect(() => {
+    if (!loadingMore && prevScrollHeightRef.current > 0 && chatBodyRef.current) {
+      const newScrollHeight = chatBodyRef.current.scrollHeight;
+      chatBodyRef.current.scrollTop = newScrollHeight - prevScrollHeightRef.current;
+      prevScrollHeightRef.current = 0;
+    }
+  }, [messageList, loadingMore]);
 
   useEffect(() => {
     const requestMicPermission = async () => {
@@ -425,7 +439,23 @@ export default function ChatWindow({
         </div>
       </div>
 
-      <div className="chat-message-list">
+      <div
+        className="chat-message-list"
+        ref={chatBodyRef}
+        onScroll={(e) => {
+          const el = e.target;
+          if (el.scrollTop < 30 && hasMore && !loadingMore && onLoadMore) {
+            prevScrollHeightRef.current = el.scrollHeight;
+            onLoadMore();
+          }
+        }}
+      >
+        {loadingMore && (
+          <div style={{ textAlign: 'center', padding: '8px 0', color: '#999', fontSize: '13px' }}>加载中...</div>
+        )}
+        {!hasMore && messageList.length > 0 && (
+          <div style={{ textAlign: 'center', padding: '8px 0', color: '#bbb', fontSize: '12px' }}>已是最早的消息</div>
+        )}
         {messageList.length === 0 ? (
           <div className="empty-message">暂无消息</div>
         ) : (

@@ -6,6 +6,7 @@ const Message = require('../models/Message');
 const Friendship = require('../models/Friendship');
 const User = require('../models/User');
 const { getIO } = require('../utils/socketStore');
+const redisClient = require('../utils/redis');
 
 const createGroup = async (ctx) => {
   try {
@@ -239,6 +240,15 @@ const getGroupInviteCandidates = async (ctx) => {
         ? 'pending'
         : 'none'
     }));
+
+    const onlineKeys = result.map(u => `online:${u.id.toString()}`);
+    let onlineStatuses = [];
+    if (onlineKeys.length > 0) {
+      onlineStatuses = await redisClient.mget(onlineKeys);
+    }
+    result.forEach((u, i) => {
+      u.status = onlineStatuses[i] ? 'online' : 'offline';
+    });
 
     ctx.body = {
       success: true,
@@ -554,6 +564,15 @@ const getGroupMembers = async (ctx) => {
         status: item.userId.status,
         role: item.role
       }));
+
+    const onlineKeys = memberList.map(m => `online:${m.id.toString()}`);
+    let onlineStatuses = [];
+    if (onlineKeys.length > 0) {
+      onlineStatuses = await redisClient.mget(onlineKeys);
+    }
+    memberList.forEach((m, i) => {
+      m.status = onlineStatuses[i] ? 'online' : 'offline';
+    });
 
     ctx.body = {
       success: true,

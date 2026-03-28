@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const redisClient = require('../utils/redis');
 
 const authMiddleware = async (ctx, next) => {
   try {
@@ -15,6 +16,16 @@ const authMiddleware = async (ctx, next) => {
     }
 
     const token = authHeader.split(' ')[1];
+
+    const isBlacklisted = await redisClient.get(`blacklist:${token}`);
+    if (isBlacklisted) {
+      ctx.status = 401;
+      ctx.body = {
+        success: false,
+        message: '令牌已注销失效，请重新登录'
+      };
+      return;
+    }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 

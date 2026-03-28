@@ -12,3 +12,12 @@ export const registerApi = (data) => {
 export const loginApi = (data) => {
   return request.post('/api/auth/login', data);
 };
+
+export const logoutApi = () => {
+  const token = localStorage.getItem('token');
+  return request.post('/api/auth/logout', {}, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+};
