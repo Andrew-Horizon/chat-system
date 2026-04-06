@@ -23,12 +23,6 @@ services:
       - PORT=3000
       - MONGODB_URI=mongodb://mongo:27017/chat_system
       - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET}
-      # 阿里云短信配置建议通过环境变量传入
-      - ALIYUN_ACCESS_KEY_ID=${ALIYUN_ACCESS_KEY_ID}
-      - ALIYUN_ACCESS_KEY_SECRET=${ALIYUN_ACCESS_KEY_SECRET}
-      - ALIYUN_SMS_SIGN_NAME=${ALIYUN_SMS_SIGN_NAME}
-      - ALIYUN_SMS_TEMPLATE_CODE=${ALIYUN_SMS_TEMPLATE_CODE}
     depends_on:
       - mongo
       - redis
