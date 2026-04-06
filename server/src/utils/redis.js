@@ -1,7 +1,7 @@
 const Redis = require('ioredis');
 
-// 配置 Redis 客户端连接参数，默认使用本地 127.0.0.1:6379
-const redisClient = new Redis({
+// 配置 Redis 客户端连接参数，支持 Docker 环境变量
+const redisClient = new Redis(process.env.REDIS_URL || {
   host: process.env.REDIS_HOST || '127.0.0.1',
   port: process.env.REDIS_PORT || 6379,
   retryStrategy: (times) => {
