@@ -1,7 +1,8 @@
 import axios from 'axios';
 
 const request = axios.create({
-  baseURL: 'http://localhost:3000',
+  // 自动识别环境
+  baseURL: window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin,
   timeout: 5000
 });
 

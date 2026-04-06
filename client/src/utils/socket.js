@@ -9,7 +9,10 @@ export const connectSocket = (token) => {
     return socket;
   }
 
-  socket = io('http://localhost:3000', {
+  // 自动识别环境
+  const socketUrl = window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin;
+
+  socket = io(socketUrl, {
     auth: {
       token
     },
