@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { registerApi } from '../api/auth';
+import { registerApi, sendCodeApi } from '../api/auth';
 import '../styles/auth.css';
 import AlertModal from '../components/AlertModal';
 
@@ -10,9 +10,12 @@ export default function RegisterPage() {
     username: '',
     nickname: '',
     password: '',
-    confirmPassword: ''
+    confirmPassword: '',
+    phone: '',
+    code: ''
   });
   const [loading, setLoading] = useState(false);
+  const [countdown, setCountdown] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
   const [alertModal, setAlertModal] = useState({
     visible: false,
@@ -32,8 +35,13 @@ export default function RegisterPage() {
     e.preventDefault();
     setErrorMsg('');
 
-    if (!form.username || !form.nickname || !form.password || !form.confirmPassword) {
+    if (!form.username || !form.nickname || !form.password || !form.confirmPassword || !form.phone || !form.code) {
       setErrorMsg('请完整填写注册信息');
+      return;
+    }
+
+    if (!/^1[3-9]\d{9}$/.test(form.phone)) {
+      setErrorMsg('手机号格式不正确');
       return;
     }
 
@@ -53,7 +61,9 @@ export default function RegisterPage() {
       await registerApi({
         username: form.username,
         nickname: form.nickname,
-        password: form.password
+        password: form.password,
+        phone: form.phone,
+        code: form.code
       });
 
       showAlert('注册成功，请登录');
@@ -85,6 +95,30 @@ export default function RegisterPage() {
     }
   };
 
+  const handleSendCode = async () => {
+    if (!form.phone || !/^1[3-9]\d{9}$/.test(form.phone)) {
+      setErrorMsg('请先输入正确的手机号');
+      return;
+    }
+    
+    setErrorMsg('');
+    try {
+      await sendCodeApi({ phone: form.phone });
+      setCountdown(60);
+      const timer = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } catch (error) {
+      setErrorMsg(error?.response?.data?.message || '验证码发送失败');
+    }
+  };
+
   return (
     <div className="auth-page">
       <div className="auth-card">
@@ -113,6 +147,48 @@ export default function RegisterPage() {
               value={form.nickname}
               onChange={handleChange}
             />
+          </div>
+
+          <div className="auth-form-item">
+            <label>手机号</label>
+            <input
+              type="text"
+              name="phone"
+              placeholder="请输入11位手机号"
+              value={form.phone}
+              onChange={handleChange}
+            />
+          </div>
+
+          <div className="auth-form-item">
+            <label>验证码</label>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input
+                type="text"
+                name="code"
+                placeholder="请输入6位验证码"
+                value={form.code}
+                onChange={handleChange}
+                style={{ flex: 1 }}
+              />
+              <button 
+                type="button" 
+                onClick={handleSendCode} 
+                disabled={countdown > 0}
+                style={{ 
+                  borderRadius: '6px', 
+                  border: 'none', 
+                  backgroundColor: countdown > 0 ? '#ccc' : '#4f46e5',
+                  color: 'white',
+                  cursor: countdown > 0 ? 'not-allowed' : 'pointer',
+                  padding: '0 12px',
+                  fontSize: '13px',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {countdown > 0 ? `${countdown}秒后重发` : '获取验证码'}
+              </button>
+            </div>
           </div>
 
           <div className="auth-form-item">

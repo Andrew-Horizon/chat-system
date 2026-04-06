@@ -22,8 +22,19 @@ const createGroup = async (ctx) => {
       return;
     }
 
+    const trimmedName = name.trim();
+    const existingGroup = await Group.findOne({ name: trimmedName });
+    if (existingGroup) {
+      ctx.status = 400;
+      ctx.body = {
+        success: false,
+        message: '群名称已存在，请使用其他名称'
+      };
+      return;
+    }
+
     const createdGroup = await Group.create({
-      name: name.trim(),
+      name: trimmedName,
       ownerId: currentUser._id,
       avatar,
       description

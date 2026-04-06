@@ -18,6 +18,7 @@ const userSchema = new mongoose.Schema(
     nickname: {
       type: String,
       required: true,
+      unique: true,
       trim: true,
       maxlength: 30
     },
@@ -33,6 +34,13 @@ const userSchema = new mongoose.Schema(
     publicKey: {
       type: String,
       default: ''
+    },
+    phone: {
+      type: String,
+      unique: true,
+      sparse: true,
+      trim: true,
+      match: /^1[3-9]\d{9}$/
     }
   },
   {

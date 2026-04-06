@@ -13,6 +13,10 @@ export const loginApi = (data) => {
   return request.post('/api/auth/login', data);
 };
 
+export const sendCodeApi = (data) => {
+  return request.post('/api/auth/send-code', data);
+};
+
 export const logoutApi = () => {
   const token = localStorage.getItem('token');
   return request.post('/api/auth/logout', {}, {
