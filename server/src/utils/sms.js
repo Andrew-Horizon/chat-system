@@ -39,6 +39,15 @@ async function sendSmsCode(phone, code) {
   const signName = process.env.ALIYUN_SMS_SIGN_NAME;
   const templateCode = process.env.ALIYUN_SMS_TEMPLATE_CODE;
 
+  // 调试日志：确认环境变量是否成功注入容器
+  console.log('--- SMS 发送调试信息 ---');
+  console.log('目标手机号:', phone);
+  console.log('验证码内容:', code);
+  console.log('短信签名 (SignName):', signName || '未读取到');
+  console.log('模板代码 (TemplateCode):', templateCode || '未读取到');
+  console.log('AccessKeyId:', process.env.ALIYUN_ACCESS_KEY_ID ? '已存在' : '缺失');
+  console.log('-----------------------');
+
   if (!signName || !templateCode) {
     console.error('发送短信失败: 缺少 ALIYUN_SMS_SIGN_NAME 或 ALIYUN_SMS_TEMPLATE_CODE 环境变量');
     return false;
