@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # 前端服务 (Nginx)
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: always
+
+  # 后端服务 (Node.js)
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    environment:
+      - PORT=3000
+      - MONGODB_URI=mongodb://mongo:27017/chat_system
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      # 阿里云短信配置建议通过环境变量传入
+      - ALIYUN_ACCESS_KEY_ID=${ALIYUN_ACCESS_KEY_ID}
+      - ALIYUN_ACCESS_KEY_SECRET=${ALIYUN_ACCESS_KEY_SECRET}
+      - ALIYUN_SMS_SIGN_NAME=${ALIYUN_SMS_SIGN_NAME}
+      - ALIYUN_SMS_TEMPLATE_CODE=${ALIYUN_SMS_TEMPLATE_CODE}
+    depends_on:
+      - mongo
+      - redis
+    restart: always
+    volumes:
+      - ./server/uploads:/app/uploads
+
+  # 数据库 (MongoDB)
+  mongo:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    # 针对 2G 内存服务器的优化：限制磁盘缓存占用
+    command: mongod --wiredTigerCacheSizeGB 0.5
+    deploy:
+      resources:
+        limits:
+          memory: 800M
+    restart: always
+
+  # 缓存 (Redis)
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    restart: always
+
+volumes:
+  mongo_data:
