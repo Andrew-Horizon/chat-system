@@ -15,6 +15,10 @@ const rtcConfig = {
 export const getLocalStream = async () => {
   if (localStream) return localStream;
 
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    throw new Error('您的浏览器不支持或禁用了音视频功能。注意：语音聊天需要 HTTPS 环境或 localhost。');
+  }
+
   localStream = await navigator.mediaDevices.getUserMedia({
     audio: {
       echoCancellation: true,

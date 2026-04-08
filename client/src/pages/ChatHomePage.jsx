@@ -1075,6 +1075,11 @@ const closeInviteGroupMemberModal = () => {
     showAlert('你收到新的好友申请');
   };
 
+  const handleFriendAccepted = async (payload) => {
+    await loadBaseData();
+    showAlert(`${payload.nickname || payload.username} 已同意了你的好友申请`);
+  };
+
   const handleMessageRecalled = async (payload) => {
     const { messageId, conversationId } = payload;
     if (String(conversationId) === String(joinedConversationRef.current)) {
@@ -1128,6 +1133,7 @@ const closeInviteGroupMemberModal = () => {
   socket.on('group:joined', handleGroupJoined);
   socket.on('group:invited', handleGroupInvited);
   socket.on('friend:requested', handleFriendRequested);
+  socket.on('friend:accepted', handleFriendAccepted);
   socket.on('message:recalled', handleMessageRecalled);
   socket.on('message:readReceipt', handleMessageReadReceipt);
   socket.on('conversation:call_status_changed', handleCallStatusChanged);
@@ -1142,6 +1148,7 @@ const closeInviteGroupMemberModal = () => {
     socket.off('group:joined', handleGroupJoined);
     socket.off('group:invited', handleGroupInvited);
     socket.off('friend:requested', handleFriendRequested);
+    socket.off('friend:accepted', handleFriendAccepted);
     socket.off('message:recalled', handleMessageRecalled);
     socket.off('message:readReceipt', handleMessageReadReceipt);
     socket.off('conversation:call_status_changed', handleCallStatusChanged);

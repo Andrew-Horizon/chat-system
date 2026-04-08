@@ -333,6 +333,16 @@ const handleFriendRequest = async (ctx) => {
     request.status = action === 'accept' ? 'accepted' : 'rejected';
     await request.save();
 
+    // 如果同意了申请，实时通知申请人刷新列表
+    const io = getIO();
+    if (io && action === 'accept') {
+      io.to(`user:${request.requesterId}`).emit('friend:accepted', {
+        userId: currentUser._id,
+        nickname: currentUser.nickname || currentUser.username,
+        username: currentUser.username
+      });
+    }
+
     ctx.status = 200;
     ctx.body = {
       success: true,
